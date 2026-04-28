@@ -11,6 +11,7 @@ const SS_PAPER = "https://api.semanticscholar.org/graph/v1/paper";
 const SS_FIELDS = "title,authors,year,venue,publicationVenue,externalIds";
 const MAX_RETRIES = 4;
 const RETRY_BASE_MS = 1500;
+const FETCH_TIMEOUT_MS = 15000;
 
 const BIB_REVIEWER_SYSTEM_PROMPT = `
 ## pi-bib citation-review guidance
@@ -114,6 +115,7 @@ async function fetchJSON(
     try {
       const resp = await fetch(u.toString(), {
         headers: { "user-agent": "pi-bib/0.1" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (resp.ok) {
         rateSuccess(source);
@@ -257,7 +259,11 @@ async function findBibFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
-async function checkFile(file: string, root: string): Promise<FileCheck> {
+async function checkFile(
+  file: string,
+  root: string,
+  onProgress?: (current: number, total: number, entryId: string) => void,
+): Promise<FileCheck> {
   const content = await fs.readFile(file, "utf8");
   const parsed = B.parseBibWithErrors(content);
   const entries = parsed.entries;
@@ -273,6 +279,7 @@ async function checkFile(file: string, root: string): Promise<FileCheck> {
     const entry = entries[i];
     const title = entry.title || "";
     const entryId = entry.ID || `entry_${i}`;
+    onProgress?.(i + 1, entries.length, entryId);
     const norm = B.normalizeTitle(title);
     const duplicateOf = norm ? (seenTitles.get(norm) ?? null) : null;
     if (norm && !duplicateOf) seenTitles.set(norm, entryId);
@@ -472,12 +479,31 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      ctx.ui.notify(
+        `Found ${files.length} .bib file(s). Checking entries...`,
+        "info",
+      );
+
       const allResults: CheckResult[] = [];
       const parseIssues: ParseIssue[] = [];
       const suggestedFiles: string[] = [];
-      for (const file of files) {
-        ctx.ui.setStatus("pi-bib", `Checking ${path.relative(root, file)}`);
-        const checked = await checkFile(file, root);
+      for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+        const file = files[fileIndex];
+        const relativeFile = path.relative(root, file);
+        ctx.ui.setStatus(
+          "pi-bib",
+          `Checking file ${fileIndex + 1}/${files.length}: ${relativeFile}`,
+        );
+        const checked = await checkFile(
+          file,
+          root,
+          (current, total, entryId) => {
+            ctx.ui.setStatus(
+              "pi-bib",
+              `Checking ${relativeFile}: ${current}/${total} (${entryId})`,
+            );
+          },
+        );
         allResults.push(...checked.results);
         parseIssues.push(...checked.parseIssues);
         if (checked.suggestedPath) suggestedFiles.push(checked.suggestedPath);
