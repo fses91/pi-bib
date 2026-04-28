@@ -10,6 +10,14 @@
     "bibtex"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fses91/pi-bib.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fses91/pi-bib/issues"
+  },
+  "homepage": "https://github.com/fses91/pi-bib#readme",
   "files": [
     "src",
     "README.md",
