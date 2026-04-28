@@ -44,6 +44,7 @@ type CheckResult = {
   title_score: number;
   duplicate_of: string | null;
   found_title: string;
+  review_note: string | null;
   field_diffs: FieldDiff[];
 };
 
@@ -363,6 +364,10 @@ async function checkFile(
               : cmp.field_diffs;
           if (status === "updated")
             applySafeSuggestions(suggestedEntries[i], fieldDiffs);
+          const reviewNote =
+            llmVerdict === "different" || llmVerdict === "uncertain"
+              ? `LLM suspicious-match check returned \`${llmVerdict}\`; candidate metadata was not applied automatically.`
+              : null;
           result = buildResult(
             file,
             entry,
@@ -372,6 +377,7 @@ async function checkFile(
             fieldDiffs,
             found,
             duplicateOf,
+            reviewNote,
           );
         }
       }
@@ -414,6 +420,7 @@ function buildResult(
   fieldDiffs: FieldDiff[],
   found: StandardPaper | null,
   duplicateOf: string | null,
+  reviewNote: string | null = null,
 ): CheckResult {
   return {
     file,
@@ -425,6 +432,7 @@ function buildResult(
     title_score: titleScore,
     duplicate_of: duplicateOf,
     found_title: found?.title || "",
+    review_note: reviewNote,
     field_diffs: fieldDiffs,
   };
 }
@@ -495,6 +503,7 @@ function renderMarkdown(
     lines.push(`Title: ${result.title || "(no title)"}`);
     if (result.found_title)
       lines.push(`Found: ${result.found_title} (${result.title_score}%)`);
+    if (result.review_note) lines.push(`Review note: ${result.review_note}`);
     if (result.field_diffs.length) {
       lines.push(
         "",
