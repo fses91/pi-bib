@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and usage help
+    url: https://github.com/fses91/pi-bib/discussions
+    about: Please use GitHub Discussions for questions, ideas, and usage help.
