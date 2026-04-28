@@ -141,17 +141,61 @@ export function entriesToBib(entries: BibEntry[]) {
   return lines.join("\n");
 }
 
+const TOKEN_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "based",
+  "by",
+  "for",
+  "from",
+  "in",
+  "is",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+function comparableTokens(text: string) {
+  return normalizeText(stripLatex(text))
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !TOKEN_STOP_WORDS.has(token));
+}
+
 export function tokenSortRatio(a = "", b = "") {
-  a = a.toLowerCase();
-  b = b.toLowerCase();
-  if (a === b) return 100;
-  const longer = a.length > b.length ? a : b;
-  const shorter = a.length > b.length ? b : a;
-  if (!longer.length) return 100;
-  let matches = 0;
-  for (let i = 0; i < shorter.length; i++)
-    if (longer.includes(shorter[i])) matches++;
-  return Math.round((matches / longer.length) * 100);
+  const normalizedA = normalizeText(stripLatex(a));
+  const normalizedB = normalizeText(stripLatex(b));
+  if (normalizedA === normalizedB) return 100;
+
+  const aTokens = comparableTokens(normalizedA);
+  const bTokens = comparableTokens(normalizedB);
+  if (!aTokens.length && !bTokens.length) return 100;
+  if (!aTokens.length || !bTokens.length) return 0;
+
+  const remaining = new Map<string, number>();
+  for (const token of bTokens) {
+    remaining.set(token, (remaining.get(token) || 0) + 1);
+  }
+
+  let intersection = 0;
+  for (const token of aTokens) {
+    const count = remaining.get(token) || 0;
+    if (count <= 0) continue;
+    intersection++;
+    if (count === 1) remaining.delete(token);
+    else remaining.set(token, count - 1);
+  }
+
+  return Math.round(
+    (2 * intersection * 100) / (aTokens.length + bTokens.length),
+  );
 }
 
 export function titleSimilarity(a = "", b = "") {
