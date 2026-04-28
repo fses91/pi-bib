@@ -1,0 +1,42 @@
+{
+  "name": "pi-bib",
+  "version": "0.1.0",
+  "description": "A pi extension for bibliography and BibTeX review workflows.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "bibliography",
+    "bibtex"
+  ],
+  "license": "MIT",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
+    "@mariozechner/pi-coding-agent": "*",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "@retorquere/bibtex-parser": "^9.0.29"
+  }
+}
