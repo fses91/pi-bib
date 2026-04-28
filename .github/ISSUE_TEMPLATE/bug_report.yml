@@ -1,0 +1,41 @@
+name: Bug Report
+description: Report something that's broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you start:** Read [CONTRIBUTING.md](https://github.com/fses91/pi-bib/blob/dev/CONTRIBUTING.md).
+
+        Keep this short. If it doesn't fit on one screen, it's too long. Write in your own voice.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Be specific. Include error messages if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: e.g. 0.1.0
+    validations:
+      required: false
