@@ -483,6 +483,11 @@ export default function (pi: ExtensionAPI) {
         `Found ${files.length} .bib file(s). Checking entries...`,
         "info",
       );
+      ctx.ui.setWidget(
+        "pi-bib-progress",
+        ["pi-bib: starting bibliography review..."],
+        { placement: "belowEditor" },
+      );
 
       const allResults: CheckResult[] = [];
       const parseIssues: ParseIssue[] = [];
@@ -490,6 +495,7 @@ export default function (pi: ExtensionAPI) {
       for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
         const file = files[fileIndex];
         const relativeFile = path.relative(root, file);
+        let lastWidgetUpdate = 0;
         ctx.ui.setStatus(
           "pi-bib",
           `Checking file ${fileIndex + 1}/${files.length}: ${relativeFile}`,
@@ -498,10 +504,22 @@ export default function (pi: ExtensionAPI) {
           file,
           root,
           (current, total, entryId) => {
-            ctx.ui.setStatus(
-              "pi-bib",
-              `Checking ${relativeFile}: ${current}/${total} (${entryId})`,
-            );
+            const progress = `Checking ${relativeFile}: ${current}/${total} (${entryId})`;
+            ctx.ui.setStatus("pi-bib", progress);
+
+            const now = Date.now();
+            if (
+              current === 1 ||
+              current === total ||
+              now - lastWidgetUpdate > 2000
+            ) {
+              lastWidgetUpdate = now;
+              ctx.ui.setWidget(
+                "pi-bib-progress",
+                [`pi-bib: file ${fileIndex + 1}/${files.length}`, progress],
+                { placement: "belowEditor" },
+              );
+            }
           },
         );
         allResults.push(...checked.results);
@@ -516,6 +534,7 @@ export default function (pi: ExtensionAPI) {
         "utf8",
       );
       ctx.ui.setStatus("pi-bib", "");
+      ctx.ui.setWidget("pi-bib-progress", undefined);
       ctx.ui.notify(
         `pi-bib checked ${allResults.length} entries. Report: ${path.relative(root, reportPath)}`,
         "info",
