@@ -12,6 +12,7 @@ const SS_FIELDS = "title,authors,year,venue,publicationVenue,externalIds";
 const MAX_RETRIES = 4;
 const RETRY_BASE_MS = 1500;
 const FETCH_TIMEOUT_MS = 15000;
+const ENTRY_CONCURRENCY = 3;
 
 const BIB_REVIEWER_SYSTEM_PROMPT = `
 ## pi-bib citation-review guidance
@@ -259,6 +260,29 @@ async function findBibFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () =>
+    worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 async function checkFile(
   file: string,
   root: string,
@@ -272,53 +296,76 @@ async function checkFile(
     file,
     message: error.input ? `${error.error}: ${error.input}` : error.error,
   }));
-  const seenTitles = new Map<string, string>();
-  const results: CheckResult[] = [];
 
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
+  const seenTitles = new Map<string, string>();
+  const duplicateOfByIndex = entries.map((entry, i) => {
     const title = entry.title || "";
     const entryId = entry.ID || `entry_${i}`;
-    onProgress?.(i + 1, entries.length, entryId);
     const norm = B.normalizeTitle(title);
     const duplicateOf = norm ? (seenTitles.get(norm) ?? null) : null;
     if (norm && !duplicateOf) seenTitles.set(norm, entryId);
+    return duplicateOf;
+  });
+  let completed = 0;
 
-    if (!title.trim() && !entry.doi?.trim()) {
-      results.push(
-        buildResult(file, entry, i, "not_found", 0, [], null, duplicateOf),
-      );
-      continue;
-    }
+  const results = await mapLimit(
+    entries,
+    ENTRY_CONCURRENCY,
+    async (entry, i) => {
+      const title = entry.title || "";
+      const duplicateOf = duplicateOfByIndex[i];
+      let result: CheckResult;
 
-    const found = await lookupPaper(entry);
-    if (!found) {
-      results.push(
-        buildResult(file, entry, i, "not_found", 0, [], null, duplicateOf),
-      );
-      continue;
-    }
+      if (!title.trim() && !entry.doi?.trim()) {
+        result = buildResult(
+          file,
+          entry,
+          i,
+          "not_found",
+          0,
+          [],
+          null,
+          duplicateOf,
+        );
+      } else {
+        const found = await lookupPaper(entry);
+        if (!found) {
+          result = buildResult(
+            file,
+            entry,
+            i,
+            "not_found",
+            0,
+            [],
+            null,
+            duplicateOf,
+          );
+        } else {
+          const cmp = B.compareEntry(entry, found);
+          const fieldDiffs =
+            cmp.status === "needs_review"
+              ? B.fieldDiffsForNeedsReview(entry, found)
+              : cmp.field_diffs;
+          if (cmp.status === "updated")
+            applySafeSuggestions(suggestedEntries[i], fieldDiffs);
+          result = buildResult(
+            file,
+            entry,
+            i,
+            cmp.status,
+            cmp.title_score,
+            fieldDiffs,
+            found,
+            duplicateOf,
+          );
+        }
+      }
 
-    const cmp = B.compareEntry(entry, found);
-    const fieldDiffs =
-      cmp.status === "needs_review"
-        ? B.fieldDiffsForNeedsReview(entry, found)
-        : cmp.field_diffs;
-    if (cmp.status === "updated")
-      applySafeSuggestions(suggestedEntries[i], fieldDiffs);
-    results.push(
-      buildResult(
-        file,
-        entry,
-        i,
-        cmp.status,
-        cmp.title_score,
-        fieldDiffs,
-        found,
-        duplicateOf,
-      ),
-    );
-  }
+      completed++;
+      onProgress?.(completed, entries.length, entry.ID || `entry_${i}`);
+      return result;
+    },
+  );
 
   const suggestedPath = await writeSuggestedBib(file, root, suggestedEntries);
   return { results, parseIssues, suggestedPath };
