@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { BibEntry, FieldDiff, StandardPaper } from "./biblib.js";
 import * as B from "./biblib.js";
@@ -47,6 +48,11 @@ type CheckResult = {
 };
 
 type ParseIssue = { file: string; message: string };
+type LlmMatchVerdict = "same" | "different" | "uncertain";
+type LlmMatchCheck = (
+  entry: BibEntry,
+  found: StandardPaper,
+) => Promise<LlmMatchVerdict>;
 type FileCheck = {
   results: CheckResult[];
   parseIssues: ParseIssue[];
@@ -287,6 +293,7 @@ async function checkFile(
   file: string,
   root: string,
   onProgress?: (current: number, total: number, entryId: string) => void,
+  llmCheck?: LlmMatchCheck,
 ): Promise<FileCheck> {
   const content = await fs.readFile(file, "utf8");
   const parsed = B.parseBibWithErrors(content);
@@ -342,17 +349,25 @@ async function checkFile(
           );
         } else {
           const cmp = B.compareEntry(entry, found);
+          const llmVerdict =
+            cmp.status === "updated" && !entry.doi?.trim() && llmCheck
+              ? await llmCheck(entry, found)
+              : "same";
+          const status =
+            llmVerdict === "different" || llmVerdict === "uncertain"
+              ? "needs_review"
+              : cmp.status;
           const fieldDiffs =
-            cmp.status === "needs_review"
+            status === "needs_review"
               ? B.fieldDiffsForNeedsReview(entry, found)
               : cmp.field_diffs;
-          if (cmp.status === "updated")
+          if (status === "updated")
             applySafeSuggestions(suggestedEntries[i], fieldDiffs);
           result = buildResult(
             file,
             entry,
             i,
-            cmp.status,
+            status,
             cmp.title_score,
             fieldDiffs,
             found,
@@ -502,6 +517,15 @@ function escapeMd(value: string) {
   return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
+function parseLlmMatchVerdict(text: string): LlmMatchVerdict {
+  const lower = text.toLowerCase();
+  if (lower.includes('"verdict":"same"') || lower.includes("same"))
+    return "same";
+  if (lower.includes('"verdict":"different"') || lower.includes("different"))
+    return "different";
+  return "uncertain";
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.notify("pi-bib loaded", "info");
@@ -536,6 +560,67 @@ export default function (pi: ExtensionAPI) {
         { placement: "belowEditor" },
       );
 
+      const model = ctx.model;
+      const auth = model
+        ? await ctx.modelRegistry.getApiKeyAndHeaders(model)
+        : { ok: false as const, error: "No active model" };
+      const llmCheck: LlmMatchCheck | undefined =
+        model && auth.ok && auth.apiKey
+          ? async (entry, found) => {
+              const response = await complete(
+                model,
+                {
+                  messages: [
+                    {
+                      role: "user" as const,
+                      content: [
+                        {
+                          type: "text" as const,
+                          text: `Decide whether these two citation records refer to the same paper.
+
+Return only compact JSON: {"verdict":"same"} or {"verdict":"different"} or {"verdict":"uncertain"}.
+Use "different" if the titles, authors, or year point to different works. Use "uncertain" if there is not enough evidence.
+
+Local BibTeX:
+Title: ${entry.title || ""}
+Authors: ${entry.author || ""}
+Year: ${entry.year || ""}
+Venue: ${entry.journal || entry.booktitle || ""}
+DOI: ${entry.doi || ""}
+
+Candidate metadata:
+Title: ${found.title || ""}
+Authors: ${found.author || ""}
+Year: ${found.year || ""}
+Venue: ${found.journal || found.booktitle || ""}
+DOI: ${found.doi || ""}`,
+                        },
+                      ],
+                      timestamp: Date.now(),
+                    },
+                  ],
+                },
+                {
+                  apiKey: auth.apiKey,
+                  headers: auth.headers,
+                  maxTokens: 80,
+                },
+              );
+              const text = response.content
+                .filter((part): part is { type: "text"; text: string } =>
+                  Boolean(part && part.type === "text"),
+                )
+                .map((part) => part.text)
+                .join("\n");
+              return parseLlmMatchVerdict(text);
+            }
+          : undefined;
+      if (!llmCheck)
+        ctx.ui.notify(
+          "LLM suspicious-match check unavailable; using metadata checks only.",
+          "warning",
+        );
+
       const allResults: CheckResult[] = [];
       const parseIssues: ParseIssue[] = [];
       const suggestedFiles: string[] = [];
@@ -568,6 +653,7 @@ export default function (pi: ExtensionAPI) {
               );
             }
           },
+          llmCheck,
         );
         allResults.push(...checked.results);
         parseIssues.push(...checked.parseIssues);

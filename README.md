@@ -19,6 +19,7 @@ Improvements / differences:
 - Uses DOI-first lookup when an entry has a `doi` field, then falls back to title lookup.
 - Writes suggested BibTeX files under `pi-bib-suggested/` instead of modifying original `.bib` files.
 - Applies only safe `updated` field suggestions to generated files; `needs_review`, `not_found`, and duplicates remain unchanged for manual review.
+- Uses the active pi model as an extra suspicious-match check before applying non-DOI metadata suggestions.
 - Adds citation-review guidance to pi's system prompt so the LLM behaves like a skeptical bibliography reviewer when helping with citations.
 
 ## Install
@@ -47,6 +48,7 @@ Lookup order per entry:
 1. If a `doi` field exists, look up the DOI directly in CrossRef and Semantic Scholar.
 2. If DOI lookup fails or no DOI is present, fall back to title-based lookup.
 3. Compare the found metadata with the local BibTeX entry and report field differences.
+4. For non-DOI matches that would otherwise be auto-updated, ask the active pi model whether the local entry and candidate metadata appear to describe the same paper. `different` or `uncertain` verdicts are kept as `needs_review` instead of being applied to suggested files.
 
 Outputs:
 

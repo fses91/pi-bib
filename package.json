@@ -29,10 +29,12 @@
     ]
   },
   "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@types/node": "^22.15.0",
     "typescript": "^5.8.0"
